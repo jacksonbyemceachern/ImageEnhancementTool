@@ -8,10 +8,6 @@ def _disk(radius):
 
 
 if __name__ == "__main__":
-    # Demo: python mask.py path/to/image.jpg
-    import sys
-    import matplotlib.pyplot as plt
-
     #Import Image
     img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg')
     print(img_bgr.shape)
