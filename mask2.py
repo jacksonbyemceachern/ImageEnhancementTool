@@ -1,20 +1,76 @@
 import cv2
 import numpy as np
 
+
 def _disk(radius):
     """Circular structuring element of the given radius."""
     size = 2 * radius + 1
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
 
+def inv_tophat(img_size, sigma):
+    #Ranges from 0 in origo (125,125) to 1 in an inverse super-gaussian profile
+    tp_power = 1
+
+    y, x = np.ogrid[:img_size, :img_size]
+    center = img_size // 2
+    dist = (x - center)**2 + (y - center)**2
+    gauss = np.exp(-(dist / (2 * sigma**2))**tp_power)
+    inv_tophat = 1-gauss
+    return inv_tophat
+
+def hp_filtering(gray, gray_part, sigma_num):
+    fourier_part = np.fft.fft2(gray)
+    fourier_coeff = np.fft.fftshift(fourier_part)
+
+    spectrum1 = np.log(1 + np.abs(fourier_coeff))
+    spectrum1 = cv2.normalize(spectrum1, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    cv2.imshow("Spectrum", spectrum1)
+
+    img_size = gray.shape[0]
+    tp = inv_tophat(img_size, sigma=sigma_num)#sigma = 50, 80)
+    hp_freqs = np.multiply(tp,fourier_coeff)
+
+    spectrum2 = np.log(1 + np.abs(hp_freqs))
+    spectrum2 = cv2.normalize(spectrum2, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    cv2.imshow("Spectrum2", spectrum2)
+
+    hp = np.real(np.fft.ifft2(np.fft.ifftshift(hp_freqs)))
+    #print(hp.min(), hp.max(),hp)
+    hp_norm = cv2.normalize(hp,None, 0,255,cv2.NORM_MINMAX)#.astype(np.uint8)
+    #print(hp_norm.min(), hp_norm.max(),hp_norm)
+    #cv2.imshow("hp2",hp_norm.astype(np.uint8))
+
+    hp_part = np.multiply(sobel_poly//255,hp) #HPNORM OR HP?????????
+    #cv2.imshow("hp_part", hp_part.astype(np.uint8))
+
+    gray_float = gray_part.astype(np.float64)
+    enhanced = gray_float+hp_part
+    cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
+    return enhanced
+
+def sharpen(img_part):
+    sharp_kernel = np.array([[0, -1, 0],
+                    [-1, 5, -1],
+                    [0, -1, 0]])
+    sharp_gray = cv2.filter2D(img_part, ddepth = -1, kernel = sharp_kernel)
+    cv2.imshow("Gray_part2d", sharp_gray)
+    return img_part
 
 if __name__ == "__main__":
+    # Demo: python mask.py path/to/image.jpg
+    import sys
+    import matplotlib.pyplot as plt
+
     #Import Image
-    img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg')
-    print(img_bgr.shape)
+    #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg')
+    #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Heizo_Takenaka/Heizo_Takenaka_0002.jpg')
+    #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Helen_Clark/Helen_Clark_0004.jpg')
+    img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Heidi_Klum/Heidi_Klum_0002.jpg')
 
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)   # uint8
     #Blurring??
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    #gray = cv2.bilateralFilter(gray,10,10,10)
 
     #Edge Detection
     canny_edges = cv2.Canny(gray, 50, 150)  
@@ -72,9 +128,8 @@ if __name__ == "__main__":
     out = np.zeros_like(sobel_binary)
     sobel_poly = cv2.fillPoly(out, [hull], 255)
 
-
-
     
+
     cv2.imshow("Canny",canny_edges)
     cv2.imshow("Sobel", sobel_edges)
     cv2.imshow("Radial Mask", radial_mask)
@@ -88,6 +143,7 @@ if __name__ == "__main__":
     cv2.imshow("Labels", labels.astype(np.uint8))
     cv2.imshow("Centered Sobel Binary", c_sobel_binary)
     cv2.imshow("Sobel Contouring", sobel_poly)
+    cv2.imshow("Mask", mask)
 
     # for i in range(1, n):                      # skip label 0 (background)
     #     area = stats[i, cv2.CC_STAT_AREA]
@@ -102,7 +158,43 @@ if __name__ == "__main__":
 
     # cv2.destroyAllWindows()
 
-    cv2.imshow("Mask", mask)
+
+    #########SIGNE########
+    #INPUT: sobel_poly, gray
+    #OUTPUT: sharpened gray but only at sobel_poly=1
+
+    #Collect image-parts we want to sharpen
+    gray_part = np.multiply(sobel_poly//255,gray)
+    cv2.imshow("Gray_part",gray_part)
+    cv2.imshow("Gray",gray)
+
+    #SHARPEN
+    #Median filtering (noise reduction)
+    #DONT KNOW IF WE WANT TO DO SINCE WE IN PREPROCESSING DONE SOME GAUSSIAN NOISE REDUCTION
+    median_gray = cv2.medianBlur(gray_part, ksize = 3)
+    cv2.imshow("Gray_part2a", median_gray)
+
+    #Bilateral filtering (gets smooth but still sharp edges)
+    bil_gray = cv2.bilateralFilter(gray_part,10,10,10)
+    cv2.imshow("Gray_part2c", bil_gray)
+
+    hp_filtering(gray, gray_part, sigma_num=20)
+
+    sharp_gray = sharpen(gray_part)
+
+    #BEST
+    bil_sharp_gray = cv2.bilateralFilter(sharp_gray,10,10,10)
+    cv2.imshow("Gray_part2f", bil_sharp_gray)
+
+    #HISTOGRAM EQUALIZATION
+    equal_gray = cv2.equalizeHist(gray)
+    equal_gray_part = np.multiply(sobel_poly//255,equal_gray)
+    cv2.imshow("Gray_part2h", equal_gray_part)
+
+
+######################
+
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
 
