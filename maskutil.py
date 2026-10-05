@@ -16,6 +16,8 @@ import numpy as np
 
 # ---------------------------------------------------------------- parameters
 
+#Sharpening Parameters - SIGMA, tp_power, sharp Kernel, (Median Filtering), blur kernel size
+
 DEFAULTS = {
     "blur_sigma": 0,        # pre-blur; 1.1 == GaussianBlur((5,5), 0)
     "edges": "sobel",         # "sobel" or "canny"
@@ -178,6 +180,80 @@ def mask_and_complement(img_bgr, preset="sobel_component", **overrides):
     alpha, _ = make_mask(img_bgr, get_params(preset, **overrides))
     return alpha, 1.0 - alpha
 
+# ------------------------------------------------------------------ Sharpening
+
+def inv_tophat(img_size, sigma=20):
+    #Ranges from 0 in origo (125,125) to 1 in an inverse super-gaussian profile
+    tp_power = 1
+
+    y, x = np.ogrid[:img_size, :img_size]
+    center = img_size // 2
+    dist = (x - center)**2 + (y - center)**2
+    gauss = np.exp(-(dist / (2 * sigma**2))**tp_power)
+    inv_tophat = 1-gauss
+    return inv_tophat
+
+def hp_filtering(gray, gray_part, sigma_num, sobel_poly):
+    fourier_part = np.fft.fft2(gray)
+    fourier_coeff = np.fft.fftshift(fourier_part)
+
+    spectrum1 = np.log(1 + np.abs(fourier_coeff))
+    spectrum1 = cv2.normalize(spectrum1, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    cv2.imshow("Spectrum", spectrum1)
+
+    img_size = gray.shape[0]
+    tp = inv_tophat(img_size, sigma=sigma_num)#sigma = 50, 80)
+    hp_freqs = np.multiply(tp,fourier_coeff)
+
+    spectrum2 = np.log(1 + np.abs(hp_freqs))
+    spectrum2 = cv2.normalize(spectrum2, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    cv2.imshow("Spectrum2", spectrum2)
+
+    hp = np.real(np.fft.ifft2(np.fft.ifftshift(hp_freqs)))
+    #print(hp.min(), hp.max(),hp)
+    hp_norm = cv2.normalize(hp,None, 0,255,cv2.NORM_MINMAX)#.astype(np.uint8)
+    #print(hp_norm.min(), hp_norm.max(),hp_norm)
+    #cv2.imshow("hp2",hp_norm.astype(np.uint8))
+
+    #Get face part of image 
+    hp_part = np.multiply(sobel_poly//255,hp) #HPNORM OR HP?????????
+    #cv2.imshow("hp_part", hp_part.astype(np.uint8))
+
+    gray_float = gray_part.astype(np.float64)
+    enhanced = gray_float+hp_part
+    cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
+    return enhanced
+
+def sharpen(img_part):
+    sharp_kernel = np.array([[0, -1, 0],
+                    [-1, 5, -1],
+                    [0, -1, 0]])
+    sharp_gray = cv2.filter2D(img_part, ddepth = -1, kernel = sharp_kernel)
+    cv2.imshow("Gray_part2d", sharp_gray)
+    return img_part
+
+
+# ------------------------------------------------------------------- blur
+def apply_bokeh_effect(original_image, mask, blur_kernel_size: int = 31):
+
+    if blur_kernel_size % 2 == 0:
+        blur_kernel_size += 1
+
+    blurred_background = cv2.GaussianBlur(original_image, (blur_kernel_size, blur_kernel_size), 0)
+
+    alpha = mask.astype(np.float32) / 255.0
+
+    alpha_3d = np.dstack([alpha, alpha, alpha])
+
+    # Result = Foreground * alpha + Background * (1 - alpha)
+    original_float = original_image.astype(np.float32)
+    background_float = blurred_background.astype(np.float32)
+
+    portrait_float = (original_float * alpha_3d) + (background_float * (1.0 - alpha_3d))
+
+    portrait_final = np.clip(portrait_float, 0, 255).astype(np.uint8)
+
+    return portrait_final
 
 # ------------------------------------------------------------------- display
 
@@ -248,11 +324,25 @@ if __name__ == "__main__":
     params = get_params(PRESET, **OVERRIDES)
     mask, steps = make_mask(img, params)
 
+    im_mask, im_comp = mask_and_complement(img)
+
+    
+    cv2.imshow("Steps Gray", steps["gray"])
+
+    
+    gray = np.asarray(steps["gray"])
+    comp = np.asarray(im_comp)
+
+    gray_part = np.multiply(gray, comp)
+
+    cv2.imshow("gray part", gray_part)
+
+    sharp = hp_filtering(steps["gray"], gray_part=im_mask, sigma_num=20, sobel_poly=mask) 
+
     cv2.imshow("gray",steps["gray"])
-    cv2.imshow("edges",steps["edges"])
-    cv2.imshow("filled",steps["filled"])
-    cv2.imshow("binary",steps["binary"])
-    cv2.imshow("mask",mask)
+
+    cv2.imshow("image Mask", im_mask)
+    cv2.imshow("sharpened", sharp)
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
