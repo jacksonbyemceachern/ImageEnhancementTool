@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 
+
 def _disk(radius):
     """Circular structuring element of the given radius."""
     size = 2 * radius + 1
@@ -14,11 +15,14 @@ if __name__ == "__main__":
 
     #Import Image
     img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg')
+    #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Heizo_Takenaka/Heizo_Takenaka_0002.jpg')
+    #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Helen_Clark/Helen_Clark_0004.jpg')
     print(img_bgr.shape)
 
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)   # uint8
     #Blurring??
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    #gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    #gray = cv2.bilateralFilter(gray,10,10,10)
 
     #Edge Detection
     canny_edges = cv2.Canny(gray, 50, 150)  
@@ -76,9 +80,8 @@ if __name__ == "__main__":
     out = np.zeros_like(sobel_binary)
     sobel_poly = cv2.fillPoly(out, [hull], 255)
 
-
-
     
+
     cv2.imshow("Canny",canny_edges)
     cv2.imshow("Sobel", sobel_edges)
     cv2.imshow("Radial Mask", radial_mask)
@@ -92,6 +95,7 @@ if __name__ == "__main__":
     cv2.imshow("Labels", labels.astype(np.uint8))
     cv2.imshow("Centered Sobel Binary", c_sobel_binary)
     cv2.imshow("Sobel Contouring", sobel_poly)
+    cv2.imshow("Mask", mask)
 
     # for i in range(1, n):                      # skip label 0 (background)
     #     area = stats[i, cv2.CC_STAT_AREA]
@@ -106,7 +110,48 @@ if __name__ == "__main__":
 
     # cv2.destroyAllWindows()
 
-    cv2.imshow("Mask", mask)
+
+    #########SIGNE########
+    #INPUT: sobel_poly, gray
+    #OUTPUT: sharpened gray but only at sobel_poly=1
+
+    #Collect image-parts we want to sharpen
+    gray_part = np.multiply(sobel_poly//255,gray) #PROBLEM WITH GRAY AND GRAY_PART
+    cv2.imshow("Gray_part",gray_part)
+    cv2.imshow("Gray",gray)
+
+    #SHARPEN
+    #Median filtering (noise reduction)
+    #DONT KNOW IF WE WANT TO DO SINCE WE IN PREPROCESSING DONE SOME GAUSSIAN NOISE REDUCTION
+    median_gray = cv2.medianBlur(gray_part, ksize = 3)
+    cv2.imshow("Gray_part2a", median_gray)
+
+    #Bilateral filtering (gets smooth but still sharp edges)
+    bil_gray = cv2.bilateralFilter(gray_part,10,10,10)
+    cv2.imshow("Gray_part2c", bil_gray)
+
+    #High-pass filtering (removes low-frequencies -> sharp edges)
+    lp_kernel = np.array([[0, -1, 0],
+                    [-1, 5, -1],
+                    [0, -1, 0]])
+    lp_gray = cv2.filter2D(gray_part, ddepth = -1, kernel = lp_kernel)
+    cv2.imshow("Gray_part2d", lp_gray)
+    hp_gray = gray_part-lp_gray
+    cv2.imshow("Gray_part2e", hp_gray)
+
+    #BEST
+    bil_lp_gray = cv2.bilateralFilter(lp_gray,10,10,10)
+    cv2.imshow("Gray_part2f", bil_lp_gray)
+
+    #HISTOGRAM EQUALIZATION
+    equal_gray = cv2.equalizeHist(gray)
+    equal_gray_part = np.multiply(sobel_poly//255,equal_gray)
+    cv2.imshow("Gray_part2h", equal_gray_part)
+
+
+######################
+
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
 
