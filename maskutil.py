@@ -36,8 +36,8 @@ DEFAULTS = {
 
 # Each preset only lists what differs from DEFAULTS.
 PRESETS = {
-    "sobel_component": {},
-    "canny_component": {"edges": "canny"},
+    "sobel_component": {"method": "component"},
+    "canny_component": {"edges": "canny", "method": "component"},
     "sobel_hull":      {"method": "hull"},
     "canny_hull":      {"edges": "canny", "method": "hull"},
     "sobel_otsu_wide": {"threshold": None, "radial_frac": 0.7},
@@ -108,6 +108,8 @@ def fill_holes(binary):
 def radial_weight(shape, frac):
     """1 at the image center, falling linearly to 0 at `frac` of the
     center-to-corner distance."""
+    if frac <= 0:
+        raise ValueError("radial_frac must be positive")
     h, w = shape
     Y, X = np.mgrid[:h, :w]
     cx, cy = w / 2, h / 2
@@ -146,7 +148,7 @@ def feather(mask, sigma):
     alpha = mask.astype(np.float32) / 255
     if sigma > 0:
         alpha = cv2.GaussianBlur(alpha, (0, 0), sigma)
-    return alpha
+    return np.clip(alpha, 0.0, 1.0)
 
 
 # --------------------------------------------------------------- full recipe
@@ -157,8 +159,8 @@ def make_mask(img_bgr, p):
     s["gray"] = to_gray(img_bgr, p["blur_sigma"])
     s["edges"] = edge_strength(s["gray"], p)
     s["binary"] = binarize(s["edges"], p["threshold"])
-    #s["closed"] = close_gaps(s["binary"], p["close_radius"])
-    s["filled"] = fill_holes(s["binary"])
+    s["closed"] = close_gaps(s["binary"], p["close_radius"])
+    s["filled"] = fill_holes(s["closed"])
     s["radial"] = radial_weight(s["binary"].shape, p["radial_frac"])
     s["cropped"] = np.where(s["radial"] > 0, s["filled"], 0).astype(np.uint8)
 
@@ -224,36 +226,66 @@ def hp_filtering(gray, gray_part, sigma_num, sobel_poly):
     cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
     return enhanced
 
-def sharpen(img_part):
-    sharp_kernel = np.array([[0, -1, 0],
-                    [-1, 5, -1],
-                    [0, -1, 0]])
-    sharp_gray = cv2.filter2D(img_part, ddepth = -1, kernel = sharp_kernel)
-    cv2.imshow("Gray_part2d", sharp_gray)
-    return img_part
+def sharpen(img_part, amount=1.0, radius=1.0):
+    """Unsharp masking: image + amount * (image - Gaussian(image))."""
+    if amount < 0 or radius <= 0:
+        raise ValueError("amount must be nonnegative and radius must be positive")
+    if amount == 0:
+        return img_part.copy()
+    smooth = cv2.GaussianBlur(img_part, (0, 0), radius)
+    return cv2.addWeighted(img_part, 1.0 + amount, smooth, -amount, 0)
+
+
+# def sharpen(img_part, amount=1.0, radius=1.0):
+#     """Unsharp masking: image + amount * (image - Gaussian(image))."""
+#     if amount < 0 or radius <= 0:
+#         raise ValueError("amount must be nonnegative and radius must be positive")
+#     if amount == 0:
+#         return img_part.copy()
+#     smooth = cv2.GaussianBlur(img_part, (0, 0), radius)
+#     return cv2.addWeighted(img_part, 1.0 + amount, smooth, -amount, 0)
 
 
 # ------------------------------------------------------------------- blur
+def _as_alpha(mask, shape):
+    """Accept uint8 masks in [0,255] or floating-point alpha in [0,1]."""
+    mask = np.asarray(mask)
+    if mask.shape != shape:
+        raise ValueError("mask must have the same height and width as the image")
+    alpha = mask.astype(np.float32)
+    if mask.dtype == np.uint8:
+        alpha /= 255.0
+    if not np.isfinite(alpha).all() or np.any((alpha < 0) | (alpha > 1)):
+        raise ValueError("use a uint8 0-255 mask or an alpha mask in [0,1]")
+    return alpha[..., None]
+
+
+def _blur_background(image, kernel_size):
+    kernel_size = max(1, int(kernel_size))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    return cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
+
+
 def apply_bokeh_effect(original_image, mask, blur_kernel_size: int = 31):
+    """Preserve the foreground and Gaussian-blur the background."""
+    return portrait_enhance(original_image, mask, blur_kernel_size, sharpen_amount=0)
 
-    if blur_kernel_size % 2 == 0:
-        blur_kernel_size += 1
 
-    blurred_background = cv2.GaussianBlur(original_image, (blur_kernel_size, blur_kernel_size), 0)
-
-    alpha = mask.astype(np.float32) / 255.0
-
-    alpha_3d = np.dstack([alpha, alpha, alpha])
-
-    # Result = Foreground * alpha + Background * (1 - alpha)
-    original_float = original_image.astype(np.float32)
-    background_float = blurred_background.astype(np.float32)
-
-    portrait_float = (original_float * alpha_3d) + (background_float * (1.0 - alpha_3d))
-
-    portrait_final = np.clip(portrait_float, 0, 255).astype(np.uint8)
-
-    return portrait_final
+def portrait_enhance(original_image, mask, blur_kernel_size=31,
+                     sharpen_amount=1.0, equalize_subject=False):
+    """Blend enhanced subject and blurred background once using soft alpha."""
+    alpha = _as_alpha(mask, original_image.shape[:2])
+    subject = original_image.copy()
+    if equalize_subject:
+        lab = cv2.cvtColor(subject, cv2.COLOR_BGR2LAB)
+        lab[..., 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(lab[..., 0])
+        subject = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    # Enhance the full image before masking to avoid a black mask-edge halo.
+    subject = sharpen(subject, amount=sharpen_amount)
+    background = _blur_background(original_image, blur_kernel_size)
+    result = subject.astype(np.float32) * alpha + background.astype(np.float32) * (1 - alpha)
+    return np.clip(np.rint(result), 0, 255).astype(np.uint8)
 
 # ------------------------------------------------------------------- display
 
