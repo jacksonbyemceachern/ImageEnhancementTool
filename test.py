@@ -1,65 +1,79 @@
-import numpy as np
+"""Portrait experiment using maskutil; run directly for parameter adjustment."""
+from pathlib import Path
+
 import cv2
+import numpy as np
+
+import maskutil
+from GUITool import run_GUI, make_preview
 
 
-img = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg', cv2.IMREAD_GRAYSCALE)
-blur = cv2.GaussianBlur(img, (21,21), 3)
-hpf = img - cv2.GaussianBlur(img, (21, 21), 3)+127  #127 assumed intensity of image
-sobelx = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=3)  # Horizontal edges
-sobely = cv2.Sobel(img, cv2.CV_64F, 0, 1, ksize=3)  # Vertical edges
-
-h, w = img.shape
-
-# 1. Create a coordinate grid representing pixel locations
-X, Y = np.meshgrid(np.arange(w), np.arange(h))
-
-# 2. Define the center of the radial filter
-center_x, center_y = w / 2, h / 2
-
-# 3. Calculate distance from center for every pixel
-distance = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
-
-# 4. Normalize distances relative to the maximum possible distance (the corner)
-max_distance = np.sqrt(center_x**2 + center_y**2)
-normalized_distance = distance / (.5*max_distance)
-
-# 5. Invert it so center is 1.0 (bright) and edge is 0.0 (dark)
-# You can change the formula here to modify the intensity fall-off profile
-radial_mask = 1 - normalized_distance
-
-# Ensure values don't fall outside the 0 to 1 range
-radial_mask = np.clip(radial_mask, 0, 1)
-
-# 6. Broadcast mask dimensions to match the image channels (H, W, 1)
-#radial_mask = np.expand_dims(radial_mask, axis=1)
+ROOT = Path(__file__).resolve().parent
+# Edit these settings, then run this file directly in your IDE.
+IMAGE_PATH = ROOT / "data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg"
+PRESET = "sobel_component"
+OVERRIDES = {}  # Same configuration style as the demo in maskutil.py.
+BLUR_KERNEL_SIZE = 31
+SHARPEN_AMOUNT = 1.0
+EQUALIZE_SUBJECT = False
+OPEN_GUI = True
 
 
+def run_experiment(image, params, blur=31, sharpen=1.0, equalize=False):
+    """Return visual comparisons and each stage of the mask pipeline."""
+    # make_mask calls gray, edges, binarize, closing, filling and mask selection.
+    alpha, steps = maskutil.make_mask(image, params)
+    complement = 1.0 - alpha
+    blur_only = maskutil.apply_bokeh_effect(image, alpha, blur)
+    # Mask after sharpening to avoid sharpening an artificial black boundary.
+    sharp_image = maskutil.sharpen(image, amount=sharpen)
+    a = alpha[..., None]
+    sharpen_only = np.clip(np.rint(sharp_image * a + image * (1 - a)), 0, 255).astype(np.uint8)
+    portrait = maskutil.portrait_enhance(image, alpha, blur, sharpen, equalize)
+    equalized_portrait = maskutil.portrait_enhance(image, alpha, blur, sharpen, True)
+    images = {
+        "original": image,
+        "subject_alpha": alpha,
+        "background_alpha": complement,
+        "subject_overlay": maskutil.overlay(image, alpha),
+        "blur_only": blur_only,
+        "sharpen_only": sharpen_only,
+        "portrait": portrait,
+        "portrait_CLAHE": equalized_portrait,
+    }
+    images["comparison"] = make_preview({
+        "Original": image, "Edges": steps["edges"], "Subject alpha": alpha,
+        "Background blur only": blur_only, "Subject sharpen only": sharpen_only,
+        "Portrait": portrait,
+    })
+    images["preset_comparison"] = maskutil.compare_presets(image)
+    return images, steps
 
 
-# Compute gradient magnitude
-gradient_magnitude = cv2.magnitude(sobelx, sobely)
+def main():
+    params = maskutil.get_params(PRESET, **OVERRIDES)
+    if (not np.isfinite([BLUR_KERNEL_SIZE, SHARPEN_AMOUNT, params["feather_sigma"],
+                         params["close_radius"], params["radial_frac"],
+                         params["hull_threshold"]]).all()
+            or min(BLUR_KERNEL_SIZE, SHARPEN_AMOUNT, params["feather_sigma"],
+                   params["close_radius"]) < 0
+            or params["radial_frac"] <= 0 or not 0 <= params["hull_threshold"] <= 255):
+        raise ValueError("Use nonnegative effects, positive radial fraction and hull threshold 0-255")
+    image = cv2.imread(str(IMAGE_PATH))
+    if image is None:
+        raise FileNotFoundError(f"Could not read image: {IMAGE_PATH}")
+    images, steps = run_experiment(image, params, BLUR_KERNEL_SIZE, SHARPEN_AMOUNT, EQUALIZE_SUBJECT)
+    print(f"Subject coverage: {steps['alpha'].mean():.1%}")
+    if OPEN_GUI:
+        return run_GUI(image, params, BLUR_KERNEL_SIZE, SHARPEN_AMOUNT,
+                       EQUALIZE_SUBJECT)
+    else:
+        maskutil.show({"Experiment": images["comparison"]})
+        return images["portrait"], steps["alpha"], steps
 
-# Convert to uint8
-gradient_magnitude = cv2.convertScaleAbs(gradient_magnitude)
 
-# 7. Apply the intensity filter (convert to float math, then back to uint8)
-filtered_img = (gradient_magnitude* radial_mask).astype(np.uint8)
-
-ret, thresh_img = cv2.threshold(filtered_img, 10,70 , cv2.THRESH_BINARY)
-
-
-
-# Display result
-cv2.imshow("Sobel Edge Detection", gradient_magnitude)
-cv2.imshow("image",img)
-cv2.imshow("hpf",hpf)
-cv2.imshow("blur",blur)
-cv2.imshow("MASK", radial_mask)
-cv2.imshow("filtered", filtered_img)
-cv2.imshow("thresh",thresh_img)
-
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()
 
 
 
