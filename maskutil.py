@@ -157,7 +157,7 @@ def make_mask(img_bgr, p):
     s["gray"] = to_gray(img_bgr, p["blur_sigma"])
     s["edges"] = edge_strength(s["gray"], p)
     s["binary"] = binarize(s["edges"], p["threshold"])
-    #s["closed"] = close_gaps(s["binary"], p["close_radius"])
+    s["closed"] = close_gaps(s["binary"], p["close_radius"])
     s["filled"] = fill_holes(s["binary"])
     s["radial"] = radial_weight(s["binary"].shape, p["radial_frac"])
     s["cropped"] = np.where(s["radial"] > 0, s["filled"], 0).astype(np.uint8)
@@ -230,7 +230,7 @@ def sharpen(img_part):
                     [0, -1, 0]])
     sharp_gray = cv2.filter2D(img_part, ddepth = -1, kernel = sharp_kernel)
     cv2.imshow("Gray_part2d", sharp_gray)
-    return img_part
+    return sharp_gray
 
 
 # ------------------------------------------------------------------- blur
@@ -241,7 +241,9 @@ def apply_bokeh_effect(original_image, mask, blur_kernel_size: int = 31):
 
     blurred_background = cv2.GaussianBlur(original_image, (blur_kernel_size, blur_kernel_size), 0)
 
-    alpha = mask.astype(np.float32) / 255.0
+    alpha = mask.astype(np.float32)
+    if alpha.max() > 1:      # accept 0-255 masks too
+        alpha = alpha / 255.0
 
     alpha_3d = np.dstack([alpha, alpha, alpha])
 
@@ -254,6 +256,19 @@ def apply_bokeh_effect(original_image, mask, blur_kernel_size: int = 31):
     portrait_final = np.clip(portrait_float, 0, 255).astype(np.uint8)
 
     return portrait_final
+
+
+def composite(img_bgr, preset="sobel_component", **overrides):
+    """mask -> sharpen foreground -> blur background -> blend.
+    Returns (portrait, steps). """
+    p = get_params(preset, **overrides)
+    alpha, steps = make_mask(img_bgr, p)
+    alpha_3d = np.dstack([alpha, alpha, alpha])          # since bokeh effect on colored img
+    alpha_3d = np.repeat(alpha[..., None], 3, axis=2)
+    steps["sharpened"] = sharpen(img_bgr)
+    steps["portrait"] = apply_bokeh_effect(steps["sharpened"], alpha, 31)
+    return steps["portrait"], steps
+
 
 # ------------------------------------------------------------------- display
 
@@ -313,9 +328,6 @@ if __name__ == "__main__":
     IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg"
     PRESET = "sobel_component"
     OVERRIDES = {}            # e.g. {"close_radius": 5, "connectivity": 4}
-    SAVE_DIR = None           # e.g. "results/" to save PNGs instead of showing
-    SHOW_STEPS = False        # True: also show every intermediate step
-    COMPARE = False           # True: show all presets side by side instead
     # ------------------------------
 
     img = cv2.imread(IMAGE_PATH)
@@ -324,25 +336,7 @@ if __name__ == "__main__":
     params = get_params(PRESET, **OVERRIDES)
     mask, steps = make_mask(img, params)
 
-    im_mask, im_comp = mask_and_complement(img)
+    portrait, steps = composite(img, PRESET)
+    show({"image": img, "mask": steps["alpha"],
+              "sharpened": steps["sharpened"], "portrait": portrait}, None)
 
-    
-    cv2.imshow("Steps Gray", steps["gray"])
-
-    
-    gray = np.asarray(steps["gray"])
-    comp = np.asarray(im_comp)
-
-    gray_part = np.multiply(gray, comp)
-
-    cv2.imshow("gray part", gray_part)
-
-    sharp = hp_filtering(steps["gray"], gray_part=im_mask, sigma_num=20, sobel_poly=mask) 
-
-    cv2.imshow("gray",steps["gray"])
-
-    cv2.imshow("image Mask", im_mask)
-    cv2.imshow("sharpened", sharp)
-
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
