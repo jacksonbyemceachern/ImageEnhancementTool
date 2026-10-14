@@ -70,7 +70,7 @@ def to_gray(img_bgr, blur_sigma):
 
 def edge_strength(gray, p):
     """Edge map as uint8 0-255. Canny gives 0/255 directly; Sobel gradient
-    magnitude is rescaled so the strongest edge in the image is 255."""
+    magnitude is rounded and saturated at 255 (not rescaled)."""
     if p["edges"] == "canny":
         return cv2.Canny(gray, p["canny_low"], p["canny_high"])
     gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=p["sobel_ksize"])
@@ -218,11 +218,11 @@ def hp_filtering(gray, gray_part, sigma_num, sobel_poly):
     #cv2.imshow("hp2",hp_norm.astype(np.uint8))
 
     #Get face part of image 
-    hp_part = np.multiply(sobel_poly//255,hp) #HPNORM OR HP?????????
+    hp_part = sobel_poly * hp #HPNORM OR HP?????????
     #cv2.imshow("hp_part", hp_part.astype(np.uint8))
 
     gray_float = gray_part.astype(np.float64)
-    enhanced = gray_float+hp_part
+    enhanced = np.clip(gray_float + hp_part, 0, 255).astype(np.uint8)
     cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
     return enhanced
 
@@ -356,7 +356,7 @@ if __name__ == "__main__":
     params = get_params(PRESET, **OVERRIDES)
     mask, steps = make_mask(img, params)
 
-    im_mask, im_comp = mask_and_complement(img)
+    im_mask, im_comp = mask, 1.0 - mask
 
     
     cv2.imshow("Steps Gray", steps["gray"])
@@ -369,7 +369,7 @@ if __name__ == "__main__":
 
     cv2.imshow("gray part", gray_part)
 
-    sharp = hp_filtering(steps["gray"], gray_part=im_mask, sigma_num=20, sobel_poly=mask) 
+    sharp = hp_filtering(steps["gray"], gray_part=steps["gray"], sigma_num=20, sobel_poly=mask) 
 
     cv2.imshow("gray",steps["gray"])
 
