@@ -195,7 +195,7 @@ def inv_tophat(img_size, sigma=20):
     inv_tophat = 1-gauss
     return inv_tophat
 
-def hp_filtering(gray, gray_part, sigma_num, sobel_poly):
+def hp_filtering1(gray, gray_part, sigma_num, sobel_poly):
     fourier_part = np.fft.fft2(gray)
     fourier_coeff = np.fft.fftshift(fourier_part)
 
@@ -224,6 +224,68 @@ def hp_filtering(gray, gray_part, sigma_num, sobel_poly):
     gray_float = gray_part.astype(np.float64)
     enhanced = np.clip(gray_float + hp_part, 0, 255).astype(np.uint8)
     cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
+    return enhanced
+
+def hp_filtering(gray, gray_part, sigma_num, sobel_poly):
+    sigma = 1
+    gray_blur = cv2.GaussianBlur(gray, (0, 0), sigma) #INVESTIGATE
+    gray_part_blur = cv2.GaussianBlur(gray_part, (0, 0), sigma) #INVESTIGATE
+
+    fourier_part = np.fft.fft2(gray_blur)
+    fourier_coeff = np.fft.fftshift(fourier_part)
+
+    spectrum1 = np.log(1 + np.abs(fourier_coeff))
+    spectrum1 = cv2.normalize(spectrum1, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    cv2.imshow("Spectrum", spectrum1)
+
+    img_size = gray.shape[0]
+    tp = inv_tophat(img_size, sigma=sigma_num)#sigma = 50, 80)
+    hp_freqs = np.multiply(tp,fourier_coeff)
+
+    spectrum2 = np.log(1 + np.abs(hp_freqs))
+    spectrum2 = cv2.normalize(spectrum2, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    cv2.imshow("Spectrum2", spectrum2)
+
+    hp = np.real(np.fft.ifft2(np.fft.ifftshift(hp_freqs)))
+    #print(hp.min(), hp.max(),hp)
+    hp_norm = cv2.normalize(hp,None, 0,255,cv2.NORM_MINMAX)#.astype(np.uint8)
+    #print(hp_norm.min(), hp_norm.max(),hp_norm)
+    cv2.imshow("hp2",hp_norm.astype(np.uint8))
+
+    #Get face part of image 
+    hp_part = np.multiply(sobel_poly,hp)
+    #Show hp face
+    hp_norm_part = cv2.normalize(hp_part,None, 0,255,cv2.NORM_MINMAX)#.astype(np.uint8)
+    cv2.imshow("hp_part", hp_norm_part.astype(np.uint8))
+    cv2.imwrite("C:\\Users\\Admin\\Documents\\ImageProcessing\\ProjectPictures\\hp_edge_face.png", hp_norm_part)
+
+    k = 3 #INVESTIGATE
+    gray_float = gray_part_blur.astype(np.float64)
+    enhanced = gray_float+k*hp_part
+    enhanced = np.clip(enhanced, 0, 255)
+    cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
+    return enhanced
+
+def sharpening_kernel(gray,gray_part,sobel_poly):
+    sharp_kernel = np.array([[0, -1, 0],
+                    [-1, 4, -1],
+                    [0, -1, 0]])
+    #sharp_gray = cv2.filter2D(img_part, ddepth = -1, kernel = sharp_kernel)
+    gray_blur = cv2.GaussianBlur(gray, (0, 0), 2.0)
+    sharp_gray = cv2.filter2D(gray_blur, cv2.CV_32F, sharp_kernel)
+    cv2.imshow("Gray features2 kernel", sharp_gray)
+
+    k=5
+    sharp_part = np.multiply(sobel_poly,sharp_gray) 
+    enhanced = gray_part+k*sharp_part
+    enhanced = np.clip(enhanced, 0, 255).astype(np.uint8)
+    cv2.imshow("Kernel result", enhanced)
+    print("sobel:", sobel_poly.min(), sobel_poly.max())
+    print("gray_part:", gray_part.min(), gray_part.max())
+    print("sharp_gray:", sharp_gray.min(), sharp_gray.max())
+    print("sharp_part:", sharp_part.min(), sharp_part.max())
+    print("enhanced:", enhanced.min(), enhanced.max())
+
     return enhanced
 
 def sharpen(img_part, amount=1.0, radius=1.0):
@@ -276,6 +338,7 @@ def portrait_enhance(original_image, mask, blur_kernel_size=31,
                      sharpen_amount=1.0, equalize_subject=False):
     """Blend enhanced subject and blurred background once using soft alpha."""
     alpha = _as_alpha(mask, original_image.shape[:2])
+    #cv2.imshow("alpha", alpha)
     subject = original_image.copy()
     if equalize_subject:
         lab = cv2.cvtColor(subject, cv2.COLOR_BGR2LAB)
@@ -363,13 +426,14 @@ if __name__ == "__main__":
 
     
     gray = np.asarray(steps["gray"])
-    comp = np.asarray(im_comp)
-
+    comp = np.asarray(im_mask)
     gray_part = np.multiply(gray, comp)
+    #gray_part_blur = cv2.GaussianBlur(gray_part, (0, 0), 1.0)
 
     cv2.imshow("gray part", gray_part)
 
-    sharp = hp_filtering(steps["gray"], gray_part=steps["gray"], sigma_num=20, sobel_poly=mask) 
+    sharp = hp_filtering(steps["gray"], gray_part=gray_part, sigma_num=20, sobel_poly=mask) 
+
 
     cv2.imshow("gray",steps["gray"])
 

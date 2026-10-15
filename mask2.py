@@ -9,13 +9,15 @@ def _disk(radius):
 
 def inv_tophat(img_size, sigma):
     #Ranges from 0 in origo (125,125) to 1 in an inverse super-gaussian profile
-    tp_power = 1
 
     y, x = np.ogrid[:img_size, :img_size]
     center = img_size // 2
-    dist = (x - center)**2 + (y - center)**2
-    gauss = np.exp(-(dist / (2 * sigma**2))**tp_power)
+    dist2 = (x - center)**2 + (y - center)**2
+    gauss = np.exp(-(dist2 / (2 * sigma**2)))
     inv_tophat = 1-gauss
+
+    #n=5
+    #inv_tophat = 1/(1+(sigma**2/dist2)**n)
     return inv_tophat
 
 def hp_filtering(gray, gray_part, sigma_num):
@@ -48,12 +50,20 @@ def hp_filtering(gray, gray_part, sigma_num):
     cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
     return enhanced
 
-def sharpen(img_part):
+def sharpen(gray, img_part):
     sharp_kernel = np.array([[0, -1, 0],
-                    [-1, 5, -1],
+                    [-1, 4, -1],
                     [0, -1, 0]])
-    sharp_gray = cv2.filter2D(img_part, ddepth = -1, kernel = sharp_kernel)
+    #sharp_gray = cv2.filter2D(img_part, ddepth = -1, kernel = sharp_kernel)
+    sharp_gray = cv2.filter2D(gray, cv2.CV_32F, sharp_kernel)
     cv2.imshow("Gray_part2d", sharp_gray)
+
+
+    k=1.5
+    enhanced = img_part+k*sharp_gray
+    enhanced = np.clip(enhanced, 0, 255).astype(np.uint8)
+    cv2.imshow("Kernel result", enhanced)
+    
     return img_part
 
 if __name__ == "__main__":
@@ -62,10 +72,10 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     #Import Image
-    #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg')
+    img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg')
     #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Heizo_Takenaka/Heizo_Takenaka_0002.jpg')
     #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Helen_Clark/Helen_Clark_0004.jpg')
-    img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Heidi_Klum/Heidi_Klum_0002.jpg')
+    #img_bgr = cv2.imread('./data/lfw-deepfunneled/lfw-deepfunneled/Heidi_Klum/Heidi_Klum_0002.jpg')
 
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)   # uint8
     #Blurring??
@@ -178,9 +188,9 @@ if __name__ == "__main__":
     bil_gray = cv2.bilateralFilter(gray_part,10,10,10)
     cv2.imshow("Gray_part2c", bil_gray)
 
-    hp_filtering(gray, gray_part, sigma_num=20)
+    hp_filtering(gray, gray_part, sigma_num=60)
 
-    sharp_gray = sharpen(gray_part)
+    sharp_gray = sharpen(gray, gray_part)
 
     #BEST
     bil_sharp_gray = cv2.bilateralFilter(sharp_gray,10,10,10)
