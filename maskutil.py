@@ -31,7 +31,7 @@ DEFAULTS = {
     "method": "hull",    # "component" or "hull"
     "connectivity": 8,        # 4 or 8 (component method)
     "hull_threshold": 50,     # min radially weighted edge strength (hull)
-    "feather_sigma": 0,       # soften mask edge; 0 = hard mask
+    "feather_sigma": 10,       # soften mask edge; 0 = hard mask
 }
 
 # Each preset only lists what differs from DEFAULTS.
@@ -193,7 +193,14 @@ def inv_tophat(img_size, sigma=20):
     inv_tophat = 1-gauss
     return inv_tophat
 
-def hp_filtering(gray, gray_part, sigma_num, sobel_poly):
+
+def hp_filtering_grayscale(gray, sigma_num, sobel_poly):
+    gray_part = np.multiply(sobel_poly,gray) 
+
+    sigma = 1
+    gray_blur = cv2.GaussianBlur(gray, (0, 0), sigma) #INVESTIGATE
+    gray_part_blur = cv2.GaussianBlur(gray_part, (0, 0), sigma) #INVESTIGATE
+
     fourier_part = np.fft.fft2(gray)
     fourier_coeff = np.fft.fftshift(fourier_part)
 
@@ -210,21 +217,94 @@ def hp_filtering(gray, gray_part, sigma_num, sobel_poly):
     cv2.imshow("Spectrum2", spectrum2)
 
     hp = np.real(np.fft.ifft2(np.fft.ifftshift(hp_freqs)))
-    #print(hp.min(), hp.max(),hp)
-    hp_norm = cv2.normalize(hp,None, 0,255,cv2.NORM_MINMAX)#.astype(np.uint8)
+    #hp_norm = cv2.normalize(hp,None, 0,255,cv2.NORM_MINMAX)#.astype(np.uint8)
     #print(hp_norm.min(), hp_norm.max(),hp_norm)
     #cv2.imshow("hp2",hp_norm.astype(np.uint8))
 
     #Get face part of image 
-    hp_part = np.multiply(sobel_poly//255,hp) #HPNORM OR HP?????????
-    #cv2.imshow("hp_part", hp_part.astype(np.uint8))
+    hp_part = np.multiply(sobel_poly//255,hp)
 
     gray_float = gray_part.astype(np.float64)
-    enhanced = gray_float+hp_part
+    k = 3 #INVESTIGATE
+    enhanced = gray_float+k*hp_part
+    enhanced = np.clip(enhanced, 0, 255)
     cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
     return enhanced
 
+
+def hp_filtering(channel, sigma_num, sobel_poly):
+    channel_part = np.multiply(sobel_poly,channel) 
+
+    sigma = 1
+    channel_blur = cv2.GaussianBlur(channel, (0, 0), sigma) #INVESTIGATE
+    channel_part_blur = cv2.GaussianBlur(channel_part, (0, 0), sigma) #INVESTIGATE
+
+    fourier_part = np.fft.fft2(channel)
+    fourier_coeff = np.fft.fftshift(fourier_part)
+
+    spectrum1 = np.log(1 + np.abs(fourier_coeff))
+    spectrum1 = cv2.normalize(spectrum1, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    cv2.imshow("Spectrum", spectrum1)
+
+    img_size = channel.shape[0]
+    tp = inv_tophat(img_size, sigma=sigma_num)#sigma = 50, 80)
+    hp_freqs = np.multiply(tp,fourier_coeff)
+
+    spectrum2 = np.log(1 + np.abs(hp_freqs))
+    spectrum2 = cv2.normalize(spectrum2, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    cv2.imshow("Spectrum2", spectrum2)
+
+    hp = np.real(np.fft.ifft2(np.fft.ifftshift(hp_freqs)))
+    #hp_norm = cv2.normalize(hp,None, 0,255,cv2.NORM_MINMAX)#.astype(np.uint8)
+    #print(hp_norm.min(), hp_norm.max(),hp_norm)
+    #cv2.imshow("hp2",hp_norm.astype(np.uint8))
+
+    #Get face part of image 
+    hp_part = np.multiply(sobel_poly,hp)
+
+    channel_float = channel.astype(np.float64)
+    k = 3 #INVESTIGATE
+    enhanced = channel_float+k*hp_part
+    enhanced = np.clip(enhanced, 0, 255)
+    cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
+    return enhanced
+
+def hp_filtering_bgr(img, sigma_num, sobel_poly):
+
+    result = np.zeros_like(img, dtype=np.float32)
+
+    for c in range(3):
+
+        result[:, :, c] = hp_filtering(
+            img[:, :, c],
+            sigma_num,
+            sobel_poly
+        )
+
+    return result #np.clip(result, 0, 255).astype(np.uint8)
+
+def lap_kernel_sharpen(img_bgr, sobel_poly):
+    sigma = 1
+    img_bgr = cv2.GaussianBlur(img_bgr, (0, 0), sigma) #INVESTIGATE
+    lap_kernel = np.array([[0, -1, 0],
+                    [-1, 4, -1],
+                    [0, -1, 0]])
+    
+    #sharp_gray = cv2.filter2D(img_bgr, ddepth = -1, kernel = sharp_kernel)
+    #cv2.imshow("Gray_part2d", sharp_gray)
+
+    sharp_layers = cv2.filter2D(img_bgr,cv2.CV_32F,lap_kernel)
+
+    k=3
+    sobel_poly3D = sobel_poly[...,None]
+    sharp_part = np.multiply(sobel_poly3D,sharp_layers) 
+    enhanced = img_bgr.astype(np.float32) + k*sharp_part
+
+    return enhanced
+
 def sharpen(img_part):
+    sigma = 1
+    #img_part = cv2.GaussianBlur(img_part, (0, 0), sigma) #INVESTIGATE
     sharp_kernel = np.array([[0, -1, 0],
                     [-1, 5, -1],
                     [0, -1, 0]])
@@ -265,7 +345,7 @@ def composite(img_bgr, preset="sobel_component", **overrides):
     alpha, steps = make_mask(img_bgr, p)
     alpha_3d = np.dstack([alpha, alpha, alpha])          # since bokeh effect on colored img
     alpha_3d = np.repeat(alpha[..., None], 3, axis=2)
-    steps["sharpened"] = sharpen(img_bgr)
+    steps["sharpened"] = hp_filtering_bgr(img_bgr, sigma_num=50, sobel_poly=alpha)#lap_kernel_sharpen(img_bgr, alpha)#sharpen(img_bgr)
     steps["portrait"] = apply_bokeh_effect(steps["sharpened"], alpha, 31)
     return steps["portrait"], steps
 
