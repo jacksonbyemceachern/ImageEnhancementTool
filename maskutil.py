@@ -149,7 +149,7 @@ def feather(mask, sigma):
     alpha = mask.astype(np.float32) / 255
     if sigma > 0:
         alpha = cv2.GaussianBlur(alpha, (0, 0), sigma)
-    return alpha
+    return np.clip(alpha, 0.0, 1.0)
 
 
 # --------------------------------------------------------------- full recipe
@@ -188,7 +188,10 @@ def mask_and_complement(img_bgr, preset="sobel_component", **overrides):
 def _mask01(mask):
     """Accept a 0-1 alpha or a 0-255 mask; return float 0-1."""
     mask = mask.astype(np.float32)
-    return mask / 255.0 if mask.max() > 1 else mask
+    # Gaussian filtering can overshoot 1 by a few float32 rounding errors.
+    if mask.max() > 1.0 + 1e-6:
+        mask = mask / 255.0
+    return np.clip(mask, 0.0, 1.0)
 
 
 def inv_tophat(shape, sigma=20):
@@ -347,9 +350,7 @@ def apply_bokeh_effect(original_image, mask, blur_kernel_size: int = 31):
 
     blurred_background = cv2.GaussianBlur(original_image, (blur_kernel_size, blur_kernel_size), 0)
 
-    alpha = mask.astype(np.float32)
-    if alpha.max() > 1:      # accept 0-255 masks too
-        alpha = alpha / 255.0
+    alpha = _mask01(mask)
 
     alpha_3d = np.dstack([alpha, alpha, alpha])
 
