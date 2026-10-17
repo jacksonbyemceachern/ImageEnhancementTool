@@ -253,14 +253,18 @@ def hp_filtering_grayscale(gray, sigma_num, sobel_poly, k=3, debug=False):
     return enhanced
 
 
-def hp_filtering(channel, sigma_num, sobel_poly, k=3, debug=False):
-    channel_part = np.multiply(sobel_poly,channel) 
+def hp_filtering(channel, sigma_num, sobel_poly, k=3, debug=False, pre_blur = 0):
+    #channel_part = np.multiply(sobel_poly,channel) 
 
     sigma = 1
-    channel_blur = cv2.GaussianBlur(channel, (0, 0), sigma) #INVESTIGATE
-    channel_part_blur = cv2.GaussianBlur(channel_part, (0, 0), sigma) #INVESTIGATE
+    #channel_blur = cv2.GaussianBlur(channel, (0, 0), sigma) #INVESTIGATE
+    #channel_part_blur = cv2.GaussianBlur(channel_part, (0, 0), sigma) #INVESTIGATE
 
-    fourier_part = np.fft.fft2(channel)
+    if pre_blur > 0:
+        src = cv2.GaussianBlur(channel, (0,0), pre_blur)
+    else:
+        src = channel
+    fourier_part = np.fft.fft2(src)
     fourier_coeff = np.fft.fftshift(fourier_part)
 
     spectrum1 = np.log(1 + np.abs(fourier_coeff))
@@ -293,7 +297,7 @@ def hp_filtering(channel, sigma_num, sobel_poly, k=3, debug=False):
         cv2.imshow("hp_enhanced", enhanced.astype(np.uint8))
     return enhanced
 
-def hp_filtering_bgr(img, sigma_num, sobel_poly, k=3, debug=False):
+def hp_filtering_bgr(img, sigma_num, sobel_poly, k=3, debug=False, pre_blur = 0):
 
     result = np.zeros_like(img, dtype=np.float32)
 
@@ -309,10 +313,13 @@ def hp_filtering_bgr(img, sigma_num, sobel_poly, k=3, debug=False):
 
     return result #np.clip(result, 0, 255).astype(np.uint8)
 
-def lap_kernel_sharpen(img_bgr, sobel_poly, k=3):
+def lap_kernel_sharpen(img_bgr, sobel_poly, k=3, sigma = 1):
     sigma = 1
     # FIX: blur only the copy the Laplacian is taken from; the base stays sharp
-    img_blur = cv2.GaussianBlur(img_bgr, (0, 0), sigma) #INVESTIGATE
+    if sigma > 0:
+        img_blur = cv2.GaussianBlur(img_bgr, (0, 0), sigma) #INVESTIGATE
+    else:
+        img_blur = img_bgr
     lap_kernel = np.array([[0, -1, 0],
                     [-1, 4, -1],
                     [0, -1, 0]])
@@ -366,7 +373,7 @@ def apply_bokeh_effect(original_image, mask, blur_kernel_size: int = 31):
 
 
 def portrait_enhance(img_bgr, alpha, blur_kernel_size=31, sharpen_amount=1.0,
-                     equalize_subject=False, sigma_num=50):
+                     equalize_subject=False, sigma_num=50,laplacian=False, k=None, pre_blur=0.0):
     """NEW (used by GUITool): sharpen (and optionally equalize) the subject,
     blur the ORIGINAL background, blend with alpha. Returns uint8 BGR.
     sharpen_amount scales the high-pass gain: 1.0 -> k=3 (previous behaviour),
@@ -379,7 +386,22 @@ def portrait_enhance(img_bgr, alpha, blur_kernel_size=31, sharpen_amount=1.0,
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         lab[..., 0] = clahe.apply(lab[..., 0])
         subject = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-    sharp = hp_filtering_bgr(subject, sigma_num, alpha, k=3 * sharpen_amount)
+
+    #pass k from function
+    # in case k is None
+    if k is None:
+        k = 3 * sharpen_amount
+    else:
+        k
+    if laplacian:
+        sharp = lap_kernel_sharpen(subject, alpha, k=k, sigma=pre_blur)
+    else:
+        sharp = hp_filtering_bgr(subject, sigma_num, alpha, k=k, pre_blur=pre_blur)
+    #
+    # sharp = hp_filtering_bgr(subject, sigma_num, alpha, k=3 * sharpen_amount)
+
+    sharp = hp_filtering_bgr(subject, sigma_num, alpha, k=k, pre_blur = pre_blur)
+
 
     blur = max(1, int(blur_kernel_size))
     if blur % 2 == 0:
