@@ -26,7 +26,7 @@ DEFAULTS = {
     "canny_high": 150,
     "threshold": 50,          # on 0-255 edge strength; None -> Otsu
     "close_radius": 3,        # closing disk radius; 0 = skip
-    "radial_frac": 0.5,       # radial weight reaches 0 at this fraction of
+    "radial_frac": .5,       # radial weight reaches 0 at this fraction of
                               # the center-to-corner distance
     "method": "component",    # "component" or "hull"
                               # (FIX: was "hull", so the *_component presets
@@ -486,9 +486,9 @@ def compare_presets(img_bgr):
 
 if __name__ == "__main__":
     # ---- settings: edit these ----
-    IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg"
+    IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Valery_Giscard_dEstaing/Valery_Giscard_dEstaing_0005.jpg"
     PRESET = "sobel_component"
-    OVERRIDES = {}            # e.g. {"close_radius": 5, "connectivity": 4}
+    OVERRIDES = {"radial_frac":.5, "threshold":75 }            # e.g. {"close_radius": 5, "connectivity": 4}
     # ------------------------------
 
     img = cv2.imread(IMAGE_PATH)
@@ -500,6 +500,6 @@ if __name__ == "__main__":
     portrait, steps = composite(img, PRESET, **OVERRIDES)   # FIX: overrides now applied
     # to_display rescales floats by their max; convert to uint8 first so the
     # sharpened preview isn't contrast-stretched
-    show({"image": img, "mask": steps["alpha"],
+    show({"image": img, "mask": steps["alpha"], "labels": steps["labels"],
               "sharpened": np.clip(steps["sharpened"], 0, 255).astype(np.uint8),
               "portrait": portrait}, None)
