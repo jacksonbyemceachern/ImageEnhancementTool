@@ -1,14 +1,3 @@
-"""
-portrait_mask.py -- build a subject mask from edges, with swappable steps.
-
-Pipeline:
-    gray -> edges -> binarize -> close gaps -> fill holes -> radial crop
-         -> mask by "component" (center blob) or "hull" (convex hull of edges)
-         -> optional feathering
-
-Edit the settings at the bottom of the file, then run:
-    python portrait_mask.py
-"""
 from pathlib import Path
 import cv2
 import numpy as np
