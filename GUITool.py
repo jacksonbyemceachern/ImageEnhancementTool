@@ -26,25 +26,31 @@ def make_preview(images, columns=3):
                       for i in range(0, len(tiles), columns)])
 
 
-def run_GUI(image, mask_params=None, blur_kernel_size=31,
-            sharpen_amount=1.0, equalize_subject=False):
+def run_GUI(image, mask_params=None, blur_kernel_size=31):
     params = maskutil.get_params(**(mask_params or {}))
     window_name = "Portrait Adjuster"
+    # Short slider names, because OpenCV truncates long trackbar labels.
+    # The full description of each is drawn in the Controls window (KEY).
     controls = {
-        "BG blur":     (round(blur_kernel_size), 101),
-        "Sharpen":     (round(sharpen_amount * 10), 30),
-        "Feather*10":  (round(params["feather_sigma"] * 10), 200),
-        "Threshold":   (params["threshold"] or 0, 255),          # 0 = Otsu
-        "Canny":       (int(params["edges"] == "canny"), 1),
-        "Close r":     (params["close_radius"], 10),
-        "Hull":        (int(params["method"] == "hull"), 1),     # 0 = component
-        "Radial %":    (round(params["radial_frac"] * 100), 100),
-        "Laplacian":   (0, 1),                                   # 0 = Gaussian HP
-        "k*10":        (50, 100),
-        "HP D0":       (50, 125),
-        "Pre-blur*10": (10, 30),
-        "Equalize":    (int(equalize_subject), 1),
+        "BG blur":   (round(blur_kernel_size), 101),
+        "Feather":   (round(params["feather_sigma"] * 10), 200),
+        "Canny":     (int(params["edges"] == "canny"), 1),  # 0 = Sobel
+        "T(Sobel)":  (params["threshold"], 255),
+        "Close r":   (params["close_radius"], 10),
+        "Laplace":   (0, 1),                                # 0 = Gaussian HP
+        "k":         (50, 100),
+        "D0(HP)":    (50, 125),
     }
+    KEY = [
+        ("BG blur",  "background Gaussian kernel size"),
+        ("Feather",  "mask feather sigma x10"),
+        ("Canny",    "0 = Sobel, 1 = Canny edges"),
+        ("T(Sobel)", "edge threshold - Sobel only"),
+        ("Close r",  "closing disk radius"),
+        ("Laplace",  "0 = Gaussian high-pass, 1 = Laplacian"),
+        ("k",        "sharpening strength x10"),
+        ("D0(HP)",   "high-pass cutoff D0 - HP only"),
+    ]
 
     ready = False
     current = None
@@ -57,20 +63,17 @@ def run_GUI(image, mask_params=None, blur_kernel_size=31,
             return
         values = {name: cv2.getTrackbarPos(name, controls_window) for name in controls}
         p = dict(params)
-        p.update(feather_sigma=values["Feather*10"] / 10,
-                 threshold=values["Threshold"] or None,
+        p.update(feather_sigma=values["Feather"] / 10,
+                 threshold=max(1, values["T(Sobel)"]),
                  edges="canny" if values["Canny"] else "sobel",
                  close_radius=values["Close r"],
-                 method="hull" if values["Hull"] else "component",
-                 radial_frac=max(1, values["Radial %"]) / 100,
                  )
         alpha, steps = maskutil.make_mask(image, p)
         blur = values["BG blur"]
         result = maskutil.portrait_enhance(
-            image, alpha, blur, values["Sharpen"] / 10,
-            equalize_subject=bool(values["Equalize"]),
-            sigma_num=max(1, values["HP D0"]), laplacian=bool(values["Laplacian"]),
-            k=values["k*10"] / 10, pre_blur=values["Pre-blur*10"] / 10)
+            image, alpha, blur,
+            sigma_num=max(1, values["D0(HP)"]), laplacian=bool(values["Laplace"]),
+            k=values["k"] / 10)   # pre-blur fixed at sigma = 1 (report III.G)
         current = result, alpha, steps
         shown = {
             "Original": image, "Edges": steps["edges"], "Subject alpha": alpha,
@@ -84,10 +87,17 @@ def run_GUI(image, mask_params=None, blur_kernel_size=31,
 
     cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
-    cv2.namedWindow(controls_window, cv2.WINDOW_NORMAL)
+    # AUTOSIZE: the window takes the size of the key image, so the key is not stretched
+    cv2.namedWindow(controls_window, cv2.WINDOW_AUTOSIZE)
     try:
-        cv2.resizeWindow(controls_window, 420, 40 * len(controls))
-        cv2.imshow(controls_window, np.zeros((1, 420, 3), np.uint8))  # some backends need an image to draw the window
+        key_img = np.full((22 * len(KEY) + 12, 420, 3), 35, np.uint8)
+        for i, (name, text) in enumerate(KEY):
+            y = 22 * i + 24
+            cv2.putText(key_img, name, (8, y), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(key_img, text, (95, y), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45, (200, 200, 200), 1, cv2.LINE_AA)
+        cv2.imshow(controls_window, key_img)
         cv2.moveWindow(controls_window, 0, 0)
         cv2.moveWindow(window_name, 440, 0)                            # preview to the right of the controls
 
@@ -97,7 +107,9 @@ def run_GUI(image, mask_params=None, blur_kernel_size=31,
         ready = True
         on_trackbar(0)
 
-        print("Sharpen / Feather values are divided by 10; Threshold 0 selects Otsu.")
+        print("Feather and k values are divided by 10.")
+        print("Canny: 0 = Sobel, 1 = Canny (T(Sobel) applies to Sobel only).")
+        print("Laplace: 0 = Gaussian high-pass, 1 = Laplacian kernel (D0(HP) applies to HP only).")
         print("Adjust sliders. S: save all shown images. Q / Esc: close.")
         while True:
             key = cv2.waitKey(30) & 0xFF
@@ -131,6 +143,6 @@ if __name__ == "__main__":
     img = cv2.imread(IMAGE_PATH)
     if img is None:
         raise FileNotFoundError(f"could not read {IMAGE_PATH}")
-    out = run_GUI(img, mask_params={"preset": "sobel_component"})
+    out = run_GUI(img)
     if out is not None:
         result, alpha, steps = out
