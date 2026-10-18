@@ -308,7 +308,8 @@ def hp_filtering_bgr(img, sigma_num, sobel_poly, k=3, debug=False, pre_blur = 0)
             sigma_num,
             sobel_poly,
             k=k,
-            debug=debug
+            debug=debug,
+            pre_blur=pre_blur
         )
 
     return result #np.clip(result, 0, 255).astype(np.uint8)
@@ -400,7 +401,7 @@ def portrait_enhance(img_bgr, alpha, blur_kernel_size=31, sharpen_amount=1.0,
     #
     # sharp = hp_filtering_bgr(subject, sigma_num, alpha, k=3 * sharpen_amount)
 
-    sharp = hp_filtering_bgr(subject, sigma_num, alpha, k=k, pre_blur = pre_blur)
+    #sharp = hp_filtering_bgr(subject, sigma_num, alpha, k=k, pre_blur = pre_blur)
 
 
     blur = max(1, int(blur_kernel_size))
