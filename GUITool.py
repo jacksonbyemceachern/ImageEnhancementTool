@@ -134,7 +134,7 @@ def run_GUI(image, mask_params=None, blur_kernel_size=31):
 if __name__ == "__main__":
     # Standalone entry point, so the GUI can be run without a separate caller.
     #data\lfw-deepfunneled\lfw-deepfunneled\Fatmir_Limaj\Fatmir_Limaj_0001.jpg
-    #data\lfw-deepfunneled\lfw-deepfunneled\Valery_Giscard_dEstaing\Valery_Giscard_dEstaing_0005.jpg
+    #data\lfw-deepfunneled\lfw-deepfunneled\Ronde_Barber\Ronde_Barber_0001.jpg
     #IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Bill_Gates/Bill_Gates_0001.jpg"
     #IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Abel_Aguilar/Abel_Aguilar_0001.jpg"
     #IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Zarai_Toledo/Zarai_Toledo_0001.jpg" 
@@ -144,6 +144,12 @@ if __name__ == "__main__":
     IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Fatmir_Limaj/Fatmir_Limaj_0001.jpg"
     #IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Francis_Crick/Francis_Crick_0001.jpg"
     #IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Valery_Giscard_dEstaing/Valery_Giscard_dEstaing_0005.jpg"
+    ##
+    ## Below is grayscale and doesn't have good results - interesting why -> too close values?
+    IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Veronica_Lake/Veronica_Lake_0001.jpg" 
+    ## Example where closure fails (reflection on head matches shirt of the guy above)
+    IMAGE_PATH = "./data/lfw-deepfunneled/lfw-deepfunneled/Ronde_Barber/Ronde_Barber_0001.jpg"
+    
 
     img = cv2.imread(IMAGE_PATH)
     if img is None:
